@@ -1,0 +1,64 @@
+# This program was derived from:
+# https://github.com/mlichvar/linuxptp-testsuite/blob/master/run
+# Copyright (C) 2013  Miroslav Lichvar <mlichvar@redhat.com>
+# SPDX-License-Identifier: GPL-2.0+
+
+test_start() {
+	echo "Testing $@:"
+	check_cabling
+}
+
+test_pass() {
+	echo "PASS"
+	exit 0
+}
+
+test_fail() {
+	echo "FAIL"
+	exit 1
+}
+
+test_ok() {
+	pad_line
+	echo -e "\tOK"
+	return 0
+}
+
+test_bad() {
+	pad_line
+	echo -e "\tBAD"
+	return 1
+}
+
+test_error() {
+	pad_line
+	echo -e "\tERROR"
+	return 1
+}
+
+msg_length=0
+pad_line() {
+	local line_length=56
+	[ $msg_length -lt $line_length ] && \
+		printf "%$[$line_length - $msg_length]s" ""
+	msg_length=0
+}
+
+test_message() {
+	local level=$1 eol=$2
+	shift 2
+	local msg="$*"
+
+	while [ $level -gt 0 ]; do
+		echo -n "  "
+		level=$[$level - 1]
+		msg_length=$[$msg_length + 2]
+	done
+	echo -n "$msg"
+
+	msg_length=$[$msg_length + ${#msg}]
+	if [ $eol -ne 0 ]; then
+		echo
+		msg_length=0
+	fi
+}

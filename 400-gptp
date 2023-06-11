@@ -1,0 +1,25 @@
+#!/bin/bash
+# Copyright (C) 2023 Richard Cochran <richardcochran@gmail.com>
+# SPDX-License-Identifier: GPL-2.0+
+
+. hil.common
+interfaces="eth3 eth4 eth6"
+pmc_extra_options="--transportSpecific=1"
+extra_options="-f $config_path/gPTP.cfg"
+cabling=labx3x
+
+test_start "ptp4l over 802.1-AS"
+
+for x in $interfaces; do
+	valgrind_ptp4l $x "$extra_options"
+done
+
+valgrind_ts2phc_backplane
+
+if ! valgrind_pmc_monitor "$pmc_extra_options"; then
+	stop_valgrind
+	test_fail
+fi
+stop_valgrind
+check_ts2phc_offsets 100
+test_pass

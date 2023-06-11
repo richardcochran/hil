@@ -1,0 +1,44 @@
+#!/bin/bash
+# Copyright (C) 2023 Richard Cochran <richardcochran@gmail.com>
+# SPDX-License-Identifier: GPL-2.0+
+
+. hil.common
+interfaces="eth6"
+extra_options="--free_running=1"
+cabling=gpsgm
+
+test_start "ts2phc otmc GM smack down"
+
+for x in $interfaces; do
+	valgrind_ptp4l $x "$extra_options"
+done
+
+valgrind_ts2phc_gpsgm
+
+if ! valgrind_pmc_monitor; then
+	stop_valgrind
+	test_fail
+fi
+stop_valgrind
+
+test_message 1 0 "Checking ptp4l GM offsets"
+
+count=$(( $test_duration_seconds - $convergence_seconds ))
+# free_running prints offsets every two seconds
+count=$(( $count / 2 ))
+
+grep "master offset" $test_dir/ptp4l.$interfaces |
+tail -n $count > $test_dir/gm.offset
+
+cat $test_dir/gm.offset | gawk -v limit=333 '{
+	if ($4 > limit || $4 < -limit) {
+		exit 4;
+	}
+}'
+
+if [ $? -ne 0 ]; then
+	test_bad
+	test_fail
+fi
+test_ok
+test_pass

@@ -1,0 +1,235 @@
+# Copyright (C) 2023 Richard Cochran <richardcochran@gmail.com>
+# SPDX-License-Identifier: GPL-2.0+
+
+. test.common
+
+# October 1 2001
+initial_phc_value=1001919600
+vgerrorcode=111
+
+allow_local_udp_reception() {
+	enable="$1"
+	ifaces="$2"
+	for x in $ifaces; do
+		echo $enable > \
+		/proc/sys/net/ipv4/conf/$x/accept_local || test_fail
+	done
+}
+
+check_cabling() {
+	current=`cat $cabling_file`
+	needed="$cabling"
+	if [ "$current" = "$needed" ]; then
+		return
+	fi
+	test_message 1 0 "Setup '$needed' cabling and enter 'y' "
+	read x
+	if [ x$x = xy ]; then
+		echo $needed > $cabling_file
+		test_ok
+	else
+		test_fail
+	fi
+}
+
+check_ts2phc_offsets() {
+	count=$(( $test_duration_seconds - $convergence_seconds ))
+	tmparr=($interfaces)
+	[ ${#tmparr[@]} = 3 ] || test_fail
+	limit=$1
+
+	test_message 1 0 "Checking ts2phc offsets"
+
+	for x in 1 2; do
+		iface=${tmparr[$x]}
+		devindex=`/usr/sbin/ethtool -T $iface | awk '/PTP/ {print $4}'`
+		device=/dev/ptp$devindex
+
+		grep $device $test_dir/ts2phc.log | \
+			grep offset | \
+			tail -n $count \
+			> $test_dir/ts2phc.$iface.offset
+
+		nlines=`cat $test_dir/ts2phc.$iface.offset | wc -l`
+		if [ "$nlines" != "$count" ]; then
+			test_bad
+			test_fail
+		fi
+
+		cat $test_dir/ts2phc.$iface.offset | \
+			gawk -v limit=$limit '{
+				if ($4 > limit || $4 < -limit) {
+					exit 4;
+				}
+			}'
+
+		if [ $? -ne 0 ]; then
+			test_bad
+			test_fail
+		fi
+	done
+
+	test_ok
+}
+
+check_valgrind_exit_code() {
+	err="$1"
+	if [ $err = $vgerrorcode ]; then
+		printf "\nvalgrind detected memory leak\n"
+		return 1
+	fi
+	if [ $err != 0 ]; then
+		printf "\nprocess returned %s\n" $err
+		return 1
+	fi
+	return 0
+}
+
+reset_phc() {
+	$prefix/phc_ctl -q -Q $1 -- set $initial_phc_value
+	$prefix/phc_ctl -q -Q $1 -- freq 0
+	initial_phc_value=$(( $initial_phc_value + 3600 ))
+}
+
+stop_valgrind() {
+	test_message 1 0 "stopping $valgrind_pids"
+	for x in $valgrind_pids; do
+		kill $x
+	done
+	for x in $valgrind_pids; do
+		wait $x
+		check_valgrind_exit_code $? || test_fail
+	done
+	test_ok
+}
+
+valgrind_pmc_monitor() {
+	extra="$1"
+	polling_period_seconds=1
+	test_message 1 0 "valgrind pmc {$extra} every $polling_period_seconds seconds..."
+	t1=$SECONDS
+	while true; do
+		sleep $polling_period_seconds
+		for x in $interfaces; do
+			valgrind \
+				--log-file=$test_dir/valgrind.pmc.$x \
+				--error-exitcode=$vgerrorcode \
+				--errors-for-leak-kinds=all \
+				--leak-check=full \
+			$prefix/pmc \
+				-b 0 -u -s /tmp/ptp4l.$x \
+				--use_syslog=0 \
+				--verbose=1 \
+				$extra \
+				'get NULL_MANAGEMENT' \
+				'get TIME_STATUS_NP' \
+				>> $test_dir/pmc.$x 2>&1
+			if ! check_valgrind_exit_code $?; then
+				test_bad
+				return 1
+			fi
+		done
+		duration=$(( $SECONDS - $t1 ))
+		if [ $duration -gt $test_duration_seconds ]; then
+			break
+		fi
+	done
+	test_ok
+	return 0
+}
+
+valgrind_ptp4l() {
+	x="$1"
+	extra="$2"
+	test_message 1 0 "valgrind ptp4l {$extra} on $x"
+	reset_phc $x
+	valgrind \
+		--log-file=$test_dir/valgrind.$x \
+		--error-exitcode=$vgerrorcode \
+		--errors-for-leak-kinds=all \
+		--leak-check=full \
+	$prefix/ptp4l \
+		--uds_ro_address=/tmp/ptp4l.ro.$x \
+		--uds_address=/tmp/ptp4l.$x \
+		--use_syslog=0 \
+		--verbose=1 \
+		$extra \
+		-i $x \
+		> $test_dir/ptp4l.$x 2>&1 \
+		&
+	valgrind_pids="$! $valgrind_pids"
+	test_ok
+}
+
+valgrind_ts2phc_backplane() {
+	test_message 1 0 "wait for clock jump before starting ts2phc..."
+	sleep 15
+	test_ok
+	test_message 1 0 "valgrind ts2phc on back plane"
+	tmparr=($interfaces)
+	[ ${#tmparr[@]} = 3 ] || test_fail
+	cat > $test_dir/ts2phc-TC.cfg <<-EOF
+		[global]
+		free_running		1
+		use_syslog		0
+		verbose			1
+		logging_level		6
+		ts2phc.pulsewidth	500000000
+
+		[${tmparr[0]}]
+		ts2phc.channel		0
+		ts2phc.master		1
+		ts2phc.pin_index	0
+
+		[${tmparr[1]}]
+		ts2phc.channel		0
+		ts2phc.extts_polarity	both
+		ts2phc.pin_index	0
+
+		[${tmparr[2]}]
+		ts2phc.channel		0
+		ts2phc.extts_polarity	both
+		ts2phc.pin_index	0
+	EOF
+	valgrind \
+		--log-file=$test_dir/valgrind.ts2phc \
+		--error-exitcode=$vgerrorcode \
+		--errors-for-leak-kinds=all \
+		--leak-check=full \
+	$prefix/ts2phc -f $test_dir/ts2phc-TC.cfg \
+		> $test_dir/ts2phc.log 2>&1 \
+		&
+	valgrind_pids="$! $valgrind_pids"
+	test_ok
+}
+
+valgrind_ts2phc_gpsgm() {
+	test_message 1 0 "valgrind ts2phc as GPS GM"
+	tmparr=($interfaces)
+	cat > $test_dir/ts2phc-TC.cfg <<-EOF
+		[global]
+		use_syslog		0
+		verbose			1
+		logging_level		6
+		ts2phc.pulsewidth	100000000
+		ts2phc.nmea_serialport	/dev/ttyUSB0
+		ts2phc.extts_correction	-100000000
+		leapfile		/usr/share/zoneinfo/leap-seconds.list
+
+		[${tmparr[0]}]
+		ts2phc.channel		0
+		ts2phc.extts_polarity	both
+		ts2phc.pin_index	0
+	EOF
+	valgrind \
+		--log-file=$test_dir/valgrind.ts2phc \
+		--error-exitcode=$vgerrorcode \
+		--errors-for-leak-kinds=all \
+		--leak-check=full \
+	$prefix/ts2phc -f $test_dir/ts2phc-TC.cfg \
+		-s nmea \
+		> $test_dir/ts2phc.log 2>&1 \
+		&
+	valgrind_pids="$! $valgrind_pids"
+	test_ok
+}

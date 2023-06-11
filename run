@@ -1,0 +1,52 @@
+#!/bin/bash
+
+# This program was derived from:
+# https://github.com/mlichvar/linuxptp-testsuite/blob/master/run
+# Copyright (C) 2013  Miroslav Lichvar <mlichvar@redhat.com>
+# SPDX-License-Identifier: GPL-2.0+
+
+#
+# Things you can set in the environment
+#
+[ -z "$cabling" ] && cabling=unknown
+[ -z "$config_path" ] && config_path=/home/richard/git/linuxptp/configs
+[ -z "$prefix" ] && prefix=/home/richard/git/linuxptp
+[ -z "$test_duration_seconds" ] && test_duration_seconds=60
+
+export config_path
+export convergence_seconds=35
+export prefix
+export test_duration_seconds
+
+if [ $convergence_seconds -ge $test_duration_seconds ]; then
+	echo test duration is too short
+	exit 1
+fi
+
+date=`date +%Y%m%d-%H%M%S`
+
+# todo - store versions into meta data
+mkdir $date
+export cabling_file=$date/cabling
+export logfile=$date/log
+echo $cabling > $cabling_file
+
+passed=() failed=()
+
+[ $# -gt 0 ] && tests=($@) || tests=([0-9][0-9][0-9]-*[^_])
+
+for test in "${tests[@]}"; do
+	echo "$test ($[${#passed[@]} + ${#failed[@]} + 1]/${#tests[@]})" | tee -a $logfile
+	export test_dir=$date/$test
+	mkdir -p $test_dir
+	./$test | tee -a $logfile
+	test ${PIPESTATUS[0]} -eq 0 && passed=(${passed[@]} $test) || failed=(${failed[@]} $test)
+	echo "" | tee -a $logfile
+done
+
+echo "SUMMARY:" | tee -a $logfile
+echo "  TOTAL  $[${#passed[@]} + ${#failed[@]}]" | tee -a $logfile
+echo "  PASSED ${#passed[@]}"                    | tee -a $logfile
+echo "  FAILED ${#failed[@]}    (${failed[@]})"  | tee -a $logfile
+
+[ ${#failed} -eq 0 ]

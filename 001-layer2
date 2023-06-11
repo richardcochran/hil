@@ -1,0 +1,24 @@
+#!/bin/bash
+# Copyright (C) 2023 Richard Cochran <richardcochran@gmail.com>
+# SPDX-License-Identifier: GPL-2.0+
+
+. hil.common
+interfaces="eth3 eth4 eth6"
+extra_options="--network_transport=L2"
+cabling=ng3x
+
+test_start "ptp4l over layer 2"
+
+for x in $interfaces; do
+	valgrind_ptp4l $x "$extra_options"
+done
+
+valgrind_ts2phc_backplane
+
+if ! valgrind_pmc_monitor; then
+	stop_valgrind
+	test_fail
+fi
+stop_valgrind
+check_ts2phc_offsets 50000
+test_pass
