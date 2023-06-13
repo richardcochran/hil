@@ -1,0 +1,74 @@
+
+* Introduction
+
+  Inspired by Miroslav's wonderful [[https://github.com/mlichvar/linuxptp-testsuite.git][linuxptp-testsuite]], this is a
+  hardware in the loop (HIL) test framework designed to allow running
+  a collection of linuxptp smoke tests.  The HIL depends strongly on
+  the actual hardware that I happen to have, but still someone might
+  find it useful.
+
+  Hard coded assumptions about the hardware setup are sprinkled
+  throughout the code, and I'm *not* trying to make a general purpose
+  framework.  At the very least, I want to be transparent about how I
+  am testing the code base.
+
+* License
+
+  The software is copyrighted by the authors and is licensed under the
+  GNU General Public License. See the file, COPYING, for details of
+  the license terms.
+
+* Test Equipment
+  - PC computer with three Intel i210 MACs, each of which has been
+    [[https://linuxptp.sourceforge.net/i210-rework/i210-rework.html][reworked]] to expose their Software Defined Pins (SDP).  The SDP of
+    the three MACs should be connected together, unless otherwise
+    indicated in the "Cabling Code" section.
+  - Unmanaged office switch with at least four ports.
+  - gPTP 802.1-AS switch with at least three ports.
+  - ublox GPS receiver connected to the PC via a USB serial port.
+  - Third party GPS GM
+
+* Cabling Codes
+  The scripts prompt the user to cable the HIL as needed for the
+  particular test.  The setups are as follows.
+** ng3x
+   #+BEGIN_EXAMPLE
+   ----------     -------------
+   | PC eth3|~~~~~| unmanaged |
+   |    eth4|~~~~~|  office   |
+   |    eth6|~~~~~|  switch   |
+   ----------     -------------
+   #+END_EXAMPLE
+** otmc
+   #+BEGIN_EXAMPLE
+   ----------     -------------
+   | PC eth3|~~~~~| unmanaged |    ----------
+   |    eth4|~~~~~|  office   |~~~~| GPS GM |
+   |    eth6|~~~~~|  switch   |    ----------
+   ----------     -------------
+   #+END_EXAMPLE
+** labx3x
+   #+BEGIN_EXAMPLE
+   ----------     -------------
+   | PC eth3|~~~~~|   gPTP    |
+   |    eth4|~~~~~|  switch   |
+   |    eth6|~~~~~|           |
+   ----------     -------------
+   #+END_EXAMPLE
+** gpsgm
+   #+BEGIN_EXAMPLE
+   ----------
+   | PC     |
+   |        |  1 PPS   ------------
+   | eth6sdp|~~~~~~~~~~|          |
+   |        |  RS232   |  ublox   |
+   | ttyUSB0|~~~~~~~~~~|   GPS    |
+   |        |          | receiver |
+   |        |          |          |
+   |        |          ------------
+   |        |
+   |        | Ethernet ------------
+   |    eth6|~~~~~~~~~~|  GPS GM  |
+   |        |          ------------
+   ----------
+   #+END_EXAMPLE
